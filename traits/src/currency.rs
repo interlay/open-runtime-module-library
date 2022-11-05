@@ -1,4 +1,4 @@
-use crate::arithmetic;
+use crate::{arithmetic, Happened};
 use codec::{Codec, FullCodec, MaxEncodedLen};
 pub use frame_support::{
 	traits::{BalanceStatus, LockIdentifier},

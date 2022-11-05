@@ -8,7 +8,7 @@ use frame_support::{
 	traits::{ConstU32, ConstU64, Everything, Nothing},
 	PalletId,
 };
-use orml_traits::parameter_type_with_key;
+use orml_traits::{currency::CurrencyMutationHooks, parameter_type_with_key};
 use sp_core::H256;
 use sp_runtime::{
 	testing::Header,
@@ -95,16 +95,11 @@ impl orml_tokens::Config for Runtime {
 	type CurrencyId = CurrencyId;
 	type WeightInfo = ();
 	type ExistentialDeposits = ExistentialDeposits;
-	type OnDust = orml_tokens::TransferDust<Runtime, DustAccount>;
-	type OnSlash = ();
-	type OnDeposit = ();
-	type OnTransfer = ();
+	type CurrencyHooks = CurrencyHooks<Runtime>;
 	type MaxLocks = ConstU32<100_000>;
 	type MaxReserves = ConstU32<100_000>;
 	type ReserveIdentifier = ReserveIdentifier;
 	type DustRemovalWhitelist = Nothing;
-	type OnNewTokenAccount = ();
-	type OnKilledTokenAccount = ();
 }
 
 pub const NATIVE_CURRENCY_ID: CurrencyId = 1;

@@ -66,9 +66,9 @@ use sp_std::{cmp, convert::Infallible, marker, prelude::*, vec::Vec};
 
 use orml_traits::{
 	arithmetic::{self, Signed},
-	currency::{OnDeposit, OnSlash, OnTransfer, TransferAll},
+	currency::{CurrencyMutationHooks, OnDeposit, OnDust, OnSlash, OnTransfer, TransferAll},
 	BalanceStatus, GetByKey, Happened, LockIdentifier, MultiCurrency, MultiCurrencyExtended, MultiLockableCurrency,
-	MultiReservableCurrency, NamedMultiReservableCurrency, OnDust,
+	MultiReservableCurrency, NamedMultiReservableCurrency,
 };
 
 mod imbalances;
@@ -173,7 +173,7 @@ pub use module::*;
 
 #[frame_support::pallet]
 pub mod module {
-	use orml_traits::currency::{OnDeposit, OnSlash, OnTransfer};
+	use orml_traits::currency::CurrencyMutationHooks;
 
 	use super::*;
 
@@ -215,23 +215,9 @@ pub mod module {
 		/// System::AccountInfo, zero ED may cause some problems.
 		type ExistentialDeposits: GetByKey<Self::CurrencyId, Self::Balance>;
 
-		/// Handler to burn or transfer account's dust
-		type OnDust: OnDust<Self::AccountId, Self::CurrencyId, Self::Balance>;
-
-		/// Hook to run before slashing an account.
-		type OnSlash: OnSlash<Self::AccountId, Self::CurrencyId, Self::Balance>;
-
-		/// Hook to run before depositing into an account.
-		type OnDeposit: OnDeposit<Self::AccountId, Self::CurrencyId, Self::Balance>;
-
-		/// Hook to run before transferring from an account to another.
-		type OnTransfer: OnTransfer<Self::AccountId, Self::CurrencyId, Self::Balance>;
-
-		/// Handler for when an account was created
-		type OnNewTokenAccount: Happened<(Self::AccountId, Self::CurrencyId)>;
-
-		/// Handler for when an account was created
-		type OnKilledTokenAccount: Happened<(Self::AccountId, Self::CurrencyId)>;
+		/// Hooks are actions that are executed on certain events.
+		/// For example: OnDust, OnNewTokenAccount
+		type CurrencyHooks: CurrencyMutationHooks<Self::AccountId, Self::CurrencyId, Self::Balance>;
 
 		#[pallet::constant]
 		type MaxLocks: Get<u32>;
@@ -764,11 +750,11 @@ impl<T: Config> Pallet<T> {
 				// Ignore the result, because if it failed then there are remaining consumers,
 				// and the account storage in frame_system shouldn't be reaped.
 				let _ = frame_system::Pallet::<T>::dec_providers(who);
-				T::OnKilledTokenAccount::happened(&(who.clone(), currency_id));
+				<T::CurrencyHooks as CurrencyMutationHooks<T::AccountId, T::CurrencyId, T::Balance>>::OnKilledTokenAccount::happened(&(who.clone(), currency_id));
 			} else if !existed && exists {
 				// if new, increase account provider
 				frame_system::Pallet::<T>::inc_providers(who);
-				T::OnNewTokenAccount::happened(&(who.clone(), currency_id));
+				<T::CurrencyHooks as CurrencyMutationHooks<T::AccountId, T::CurrencyId, T::Balance>>::OnNewTokenAccount::happened(&(who.clone(), currency_id));
 			}
 
 			if let Some(endowed) = maybe_endowed {
@@ -782,7 +768,7 @@ impl<T: Config> Pallet<T> {
 			if let Some(dust_amount) = maybe_dust {
 				// `OnDust` maybe get/set storage `Accounts` of `who`, trigger handler here
 				// to avoid some unexpected errors.
-				T::OnDust::on_dust(who, currency_id, dust_amount);
+				<T::CurrencyHooks as CurrencyMutationHooks<T::AccountId, T::CurrencyId, T::Balance>>::OnDust::on_dust(who, currency_id, dust_amount);
 
 				Self::deposit_event(Event::DustLost {
 					currency_id,
@@ -1067,19 +1053,20 @@ impl<T: Config> Pallet<T> {
 				TotalIssuance::<T>::mutate(currency_id, |v| *v = new_total_issuance);
 			}
 			account.free += amount;
-
-			<T::CurrencyHooks as CurrencyMutationHooks<T::AccountId, T::CurrencyId, T::Balance>>::DepositPostHook::on_deposit(
-				currency_id,
-				who,
-				amount,
-			)?;
-			Self::deposit_event(Event::Deposited {
-				currency_id,
-				who: who.clone(),
-				amount,
-			});
 			Ok(())
-		})
+		})?;
+
+		<T::CurrencyHooks as CurrencyMutationHooks<T::AccountId, T::CurrencyId, T::Balance>>::DepositPostHook::on_deposit(
+			currency_id,
+			who,
+			amount,
+		)?;
+		Self::deposit_event(Event::Deposited {
+			currency_id,
+			who: who.clone(),
+			amount,
+		});
+		Ok(())
 	}
 }
 
@@ -1147,7 +1134,11 @@ impl<T: Config> MultiCurrency<T::AccountId> for Pallet<T> {
 			return amount;
 		}
 
-		T::OnSlash::on_slash(currency_id, who, amount);
+		<T::CurrencyHooks as CurrencyMutationHooks<T::AccountId, T::CurrencyId, T::Balance>>::OnSlash::on_slash(
+			currency_id,
+			who,
+			amount,
+		);
 		let account = Self::accounts(who, currency_id);
 		let free_slashed_amount = account.free.min(amount);
 		// Cannot underflow because free_slashed_amount can never be greater than amount
@@ -1314,7 +1305,11 @@ impl<T: Config> MultiReservableCurrency<T::AccountId> for Pallet<T> {
 			return value;
 		}
 
-		T::OnSlash::on_slash(currency_id, who, value);
+		<T::CurrencyHooks as CurrencyMutationHooks<T::AccountId, T::CurrencyId, T::Balance>>::OnSlash::on_slash(
+			currency_id,
+			who,
+			value,
+		);
 		let reserved_balance = Self::reserved_balance(currency_id, who);
 		let actual = reserved_balance.min(value);
 		Self::mutate_account(who, currency_id, |account, _| {
