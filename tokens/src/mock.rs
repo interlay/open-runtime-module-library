@@ -270,8 +270,10 @@ impl Happened<(AccountId, CurrencyId)> for TrackKilledAccounts {
 
 thread_local! {
 	pub static ON_SLASH_CALLS: RefCell<u32> = RefCell::new(0);
-	pub static ON_DEPOSIT_CALLS: RefCell<u32> = RefCell::new(0);
-	pub static ON_TRANSFER_CALLS: RefCell<u32> = RefCell::new(0);
+	pub static ON_DEPOSIT_PREHOOK_CALLS: RefCell<u32> = RefCell::new(0);
+	pub static ON_DEPOSIT_POSTHOOK_CALLS: RefCell<u32> = RefCell::new(0);
+	pub static ON_TRANSFER_PREHOOK_CALLS: RefCell<u32> = RefCell::new(0);
+	pub static ON_TRANSFER_POSTHOOK_CALLS: RefCell<u32> = RefCell::new(0);
 }
 
 pub struct OnSlashHook<T>(marker::PhantomData<T>);
@@ -286,39 +288,86 @@ impl<T: Config> OnSlashHook<T> {
 	}
 }
 
-pub struct OnDepositHook<T>(marker::PhantomData<T>);
-impl<T: Config> OnDeposit<T::AccountId, CurrencyId, Balance> for OnDepositHook<T> {
-	fn on_deposit(_currency_id: CurrencyId, _account_id: &T::AccountId, _amount: Balance) -> DispatchResult {
-		ON_DEPOSIT_CALLS.with(|cell| *cell.borrow_mut() += 1);
+pub struct DepositPreHook<T>(marker::PhantomData<T>);
+impl<T: Config> OnDeposit<T::AccountId, T::CurrencyId, T::Balance> for DepositPreHook<T> {
+	fn on_deposit(_currency_id: T::CurrencyId, _account_id: &T::AccountId, _amount: T::Balance) -> DispatchResult {
+		ON_DEPOSIT_PREHOOK_CALLS.with(|cell| *cell.borrow_mut() += 1);
 		Ok(())
 	}
 }
-impl<T: Config> OnDepositHook<T> {
+impl<T: Config> DepositPreHook<T> {
 	pub fn calls() -> u32 {
-		ON_DEPOSIT_CALLS.with(|accounts| accounts.borrow().clone())
+		ON_DEPOSIT_PREHOOK_CALLS.with(|accounts| accounts.borrow().clone())
 	}
 }
 
-pub struct OnTransferHook<T>(marker::PhantomData<T>);
-impl<T: Config> OnTransfer<T::AccountId, CurrencyId, Balance> for OnTransferHook<T> {
+pub struct DepositPostHook<T>(marker::PhantomData<T>);
+impl<T: Config> OnDeposit<T::AccountId, T::CurrencyId, T::Balance> for DepositPostHook<T> {
+	fn on_deposit(_currency_id: T::CurrencyId, _account_id: &T::AccountId, _amount: T::Balance) -> DispatchResult {
+		ON_DEPOSIT_POSTHOOK_CALLS.with(|cell| *cell.borrow_mut() += 1);
+		Ok(())
+	}
+}
+impl<T: Config> DepositPostHook<T> {
+	pub fn calls() -> u32 {
+		ON_DEPOSIT_POSTHOOK_CALLS.with(|accounts| accounts.borrow().clone())
+	}
+}
+
+pub struct TransferPreHook<T>(marker::PhantomData<T>);
+impl<T: Config> OnTransfer<T::AccountId, T::CurrencyId, T::Balance> for TransferPreHook<T> {
 	fn on_transfer(
 		_currency_id: CurrencyId,
 		_from: &T::AccountId,
 		_to: &T::AccountId,
 		_amount: Balance,
 	) -> DispatchResult {
-		ON_TRANSFER_CALLS.with(|cell| *cell.borrow_mut() += 1);
+		ON_TRANSFER_PREHOOK_CALLS.with(|cell| *cell.borrow_mut() += 1);
 		Ok(())
 	}
 }
-impl<T: Config> OnTransferHook<T> {
+impl<T: Config> TransferPreHook<T> {
 	pub fn calls() -> u32 {
-		ON_TRANSFER_CALLS.with(|accounts| accounts.borrow().clone())
+		ON_TRANSFER_PREHOOK_CALLS.with(|accounts| accounts.borrow().clone())
+	}
+}
+
+pub struct TransferPostHook<T>(marker::PhantomData<T>);
+impl<T: Config> OnTransfer<T::AccountId, T::CurrencyId, T::Balance> for TransferPostHook<T> {
+	fn on_transfer(
+		_currency_id: T::CurrencyId,
+		_from: &T::AccountId,
+		_to: &T::AccountId,
+		_amount: T::Balance,
+	) -> DispatchResult {
+		ON_TRANSFER_POSTHOOK_CALLS.with(|cell| *cell.borrow_mut() += 1);
+		Ok(())
+	}
+}
+impl<T: Config> TransferPostHook<T> {
+	pub fn calls() -> u32 {
+		ON_TRANSFER_POSTHOOK_CALLS.with(|accounts| accounts.borrow().clone())
 	}
 }
 
 parameter_types! {
 	pub DustReceiver: AccountId = PalletId(*b"orml/dst").into_account_truncating();
+}
+
+pub struct CurrencyHooks<T>(marker::PhantomData<T>);
+impl<T: Config> CurrencyMutationHooks<T::AccountId, T::CurrencyId, T::Balance> for CurrencyHooks<T>
+where
+	T::AccountId: From<AccountId32> + Into<AccountId32>,
+	T::CurrencyId: From<u32> + Into<u32>,
+{
+	type OnDust = TransferDust<T, DustReceiver>;
+	type OnSlash = OnSlashHook<T>;
+	type DepositPreHook = DepositPreHook<T>;
+	type DepositPostHook = DepositPostHook<T>;
+	type TransferPreHook = TransferPreHook<T>;
+	type TransferPostHook = TransferPostHook<T>;
+	type OnNewTokenAccount = TrackCreatedAccounts<T>;
+	type OnKilledTokenAccount = TrackKilledAccounts<T>;
 }
 
 impl Config for Runtime {

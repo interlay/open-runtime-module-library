@@ -73,6 +73,21 @@ parameter_types! {
 	pub DustAccount: AccountId = PalletId(*b"orml/dst").into_account_truncating();
 }
 
+pub struct CurrencyHooks<T>(marker::PhantomData<T>);
+impl<T: orml_tokens::Config> CurrencyMutationHooks<T::AccountId, T::CurrencyId, T::Balance> for CurrencyHooks<T>
+where
+	T::AccountId: From<AccountId32>,
+{
+	type OnDust = orml_tokens::TransferDust<T, DustAccount>;
+	type OnSlash = ();
+	type DepositPreHook = ();
+	type DepositPostHook = ();
+	type TransferPreHook = ();
+	type TransferPostHook = ();
+	type OnNewTokenAccount = ();
+	type OnKilledTokenAccount = ();
+}
+
 impl orml_tokens::Config for Runtime {
 	type Event = Event;
 	type Balance = Balance;
